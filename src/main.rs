@@ -9,8 +9,10 @@ use std::env;
 use std::fs::File;
 mod sector_reader;
 use ntfs::NtfsFile;
+use ntfs::NtfsReadSeek;
 use sector_reader::SectorReader;
 use std::fs::OpenOptions;
+use std::io::Write;
 use std::io::{BufReader, Read, Seek};
 
 struct CommandInfo<'n, T>
@@ -49,19 +51,25 @@ fn main() -> Result<()> {
         ntfs: &ntfs,
     };
 
-    let _result: bool = cd(&args[1], &mut info);
-    let _result = get(&args[1], &mut info);
+    let result = cd(&args[1], &mut info);
+    println!("The file you want: {result}");
+    let collect_path_parts = &args[1].split("\\").collect::<Vec<&str>>();
+    let target_filename = collect_path_parts.last().unwrap();
+    println!("argument : {:?}", target_filename);
+    let result_get = get(target_filename, &mut info);
+    println!("{:?}", result_get);
     ls(&mut info);
     cd_root(&mut info);
+    println!();
     Ok(())
 }
 
-fn cd<T>(arg: &str, info: &mut CommandInfo<T>) -> bool
+fn cd<T>(arg: &str, info: &mut CommandInfo<T>) -> String
 where
     T: Read + Seek,
 {
     let dir_list_from_input = arg.split(r"\");
-    for dir in dir_list_from_input.into_iter() {
+    for dir in dir_list_from_input.clone().into_iter() {
         if dir == ".." {
             info.current_directory.pop();
         } else {
@@ -72,7 +80,7 @@ where
                 .directory_index(&mut info.fs)
             {
                 Ok(index) => index,
-                Err(_) => return false,
+                Err(_) => return String::new(),
             };
             let mut finder = index.finder();
             let maybe_entry = NtfsFileNameIndex::find(&mut finder, info.ntfs, &mut info.fs, dir);
@@ -82,32 +90,31 @@ where
                     "Cannot find subdirectory \"{dir}\".\nStop at : {}",
                     info.current_directory_name
                 );
-                return false;
+                return String::new();
             }
 
             let entry = match maybe_entry.unwrap() {
                 Ok(entry) => entry,
-                Err(_) => return false,
+                Err(_) => return String::new(),
             };
             let file_name = match entry.key().expect("key must exist for a found Index Entry") {
                 Ok(file_name) => file_name,
-                Err(_) => return false,
+                Err(_) => return String::new(),
             };
 
-            if file_name.is_directory() {
-                println!("\"{dir}\" is not a file.");
-                return false;
+            if !file_name.is_directory() && dir_list_from_input.clone().last().unwrap() == dir {
+                return String::from(dir);
             }
 
             let file = match entry.to_file(info.ntfs, &mut info.fs) {
                 Ok(file) => file,
-                Err(_) => return false,
+                Err(_) => return String::new(),
             };
             info.current_directory_name += &format!("{}\\", dir);
             info.current_directory.push(file);
         }
     }
-    return true;
+    return String::new();
 }
 
 fn cd_root<T>(info: &mut CommandInfo<T>)
@@ -147,7 +154,7 @@ where
     }
 }
 
-fn get<T>(arg: &str, _info: &mut CommandInfo<T>) -> Result<()>
+fn get<T>(arg: &str, info: &mut CommandInfo<T>) -> Result<()>
 where
     T: Read + Seek,
 {
@@ -164,14 +171,15 @@ where
     } else {
         format!("{file_name}_{data_stream_name}")
     };
-    let mut _output_file = OpenOptions::new()
+
+    let mut output_file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&output_file_name)
         .with_context(|| format!("Tried to open \"{output_file_name}\" for writing"))?;
 
     // Open the desired file and find the $DATA attribute we are looking for.
-    /*let file = parse_file_arg(file_name, info)?;
+    let file = parse_file_arg(file_name, info)?;
     let data_item = match file.data(&mut info.fs, data_stream_name) {
         Some(data_item) => data_item,
         None => {
@@ -197,7 +205,49 @@ where
         }
 
         output_file.write_all(&buf[..bytes_read])?;
-    }*/
+    }
 
     Ok(())
+}
+
+#[allow(clippy::from_str_radix_10)]
+fn parse_file_arg<'n, T>(arg: &str, info: &mut CommandInfo<'n, T>) -> Result<NtfsFile<'n>>
+where
+    T: Read + Seek,
+{
+    if arg.is_empty() {
+        bail!("Missing argument!");
+    }
+
+    if let Some(record_number_arg) = arg.strip_prefix('/') {
+        let record_number = match record_number_arg.strip_prefix("0x") {
+            Some(hex_record_number_arg) => u64::from_str_radix(hex_record_number_arg, 16),
+            None => u64::from_str_radix(record_number_arg, 10),
+        };
+
+        if let Ok(record_number) = record_number {
+            let file = info.ntfs.file(&mut info.fs, record_number)?;
+            Ok(file)
+        } else {
+            bail!(
+                "Cannot parse record number argument \"{}\"",
+                record_number_arg
+            )
+        }
+    } else {
+        let index = info
+            .current_directory
+            .last()
+            .unwrap()
+            .directory_index(&mut info.fs)?;
+        let mut finder = index.finder();
+
+        if let Some(entry) = NtfsFileNameIndex::find(&mut finder, info.ntfs, &mut info.fs, arg) {
+            let entry = entry?;
+            let file = entry.to_file(info.ntfs, &mut info.fs)?;
+            Ok(file)
+        } else {
+            bail!("No such file or directory \"{}\".", arg)
+        }
+    }
 }
