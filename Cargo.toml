@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 ntfs = "0.3.1"
 anyhow = "1.0.71"
+argparse = "0.2.2"
