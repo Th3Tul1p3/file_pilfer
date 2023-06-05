@@ -2,17 +2,17 @@
 // modified to cd a complete path and not just a directory by directory
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//use argparse::{ArgumentParser, StoreTrue, Store};
-use anyhow::{bail, Result};
+use anyhow::Result;
+use argparse::{ArgumentParser, Store};
 use ntfs::Ntfs;
-use std::env;
 use std::fs::File;
 mod sector_reader;
 use sector_reader::SectorReader;
 mod ntfs_colin_finck;
 use ntfs::NtfsFile;
-use ntfs_colin_finck::{cd, cd_root, get, ls};
+use ntfs_colin_finck::{cd, cd_root, get /* , ls*/};
 use std::io::{BufReader, Read, Seek};
+use std::process;
 
 pub struct CommandInfo<'n, T>
 where
@@ -25,17 +25,23 @@ where
 }
 
 fn main() -> Result<()> {
-    let path: String = r"\\.\C:".to_string();
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: exe PATH");
-        eprintln!();
-        eprintln!("PATH path into C: drive");
-        bail!("Aborted");
+    // dump a whole directory
+    // dump a list of file from a text file
+    let mut path: String = "".to_string();
+
+    {
+        // this block limits scope of borrows by ap.refer() method
+        let mut ap = ArgumentParser::new();
+        ap.set_description("The goal is to be able to copy protected file in windows.");
+        ap.refer(&mut path)
+            .add_option(&["--path"], Store, "PATH path into drive (Defautlt C:)");
+        ap.parse_args_or_exit();
     }
 
+    let drive: String = r"\\.\C:".to_string();
+
     // read file system
-    let f: File = File::open(&path).unwrap();
+    let f: File = File::open(&drive).unwrap();
     let sr: SectorReader<File> = SectorReader::new(f, 4096).unwrap();
     let mut fs: BufReader<SectorReader<File>> = BufReader::new(sr);
     let mut ntfs: Ntfs = Ntfs::new(&mut fs).unwrap();
@@ -50,14 +56,14 @@ fn main() -> Result<()> {
         ntfs: &ntfs,
     };
 
-    let result = cd(&args[1], &mut info);
-    println!("The file you want: {result}");
-    let collect_path_parts = &args[1].split("\\").collect::<Vec<&str>>();
+    if cd(&path, &mut info) == "" {
+        println!("Error when changing Directory.");
+        process::exit(0x0100);
+    }
+    let collect_path_parts = path.split("\\").collect::<Vec<&str>>();
     let target_filename = collect_path_parts.last().unwrap();
-    println!("argument : {:?}", target_filename);
-    let result_get = get(target_filename, &mut info, "..\\dump");
-    println!("{:?}", result_get);
-    ls(&mut info);
+    let _res = get(target_filename, &mut info, ".");
+    //ls(&mut info);
     cd_root(&mut info);
     println!();
     Ok(())
