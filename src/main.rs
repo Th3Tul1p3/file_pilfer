@@ -11,6 +11,7 @@ use sector_reader::SectorReader;
 mod ntfs_colin_finck;
 use ntfs::NtfsFile;
 use ntfs_colin_finck::{cd, cd_root, get /* , ls*/};
+use std::fs;
 use std::io::{BufReader, Read, Seek};
 use std::process;
 
@@ -22,23 +23,34 @@ where
     current_directory_name: String,
     fs: T,
     ntfs: &'n Ntfs,
+    output: String,
 }
 
 fn main() -> Result<()> {
     // dump a whole directory
     // dump a list of file from a text file
     let mut path: String = "".to_string();
+    let mut output: String = ".".to_string();
 
     {
         // this block limits scope of borrows by ap.refer() method
         let mut ap = ArgumentParser::new();
         ap.set_description("The goal is to be able to copy protected file in windows.");
         ap.refer(&mut path)
-            .add_option(&["--path"], Store, "PATH path into drive (Defautlt C:)");
+            .add_option(&["--p"], Store, "PATH path into drive. (Defautlt from C:)");
+        ap.refer(&mut output).add_option(
+            &["-o"],
+            Store,
+            "Output directory for downloaded files.  (Defautlt '.')",
+        );
         ap.parse_args_or_exit();
     }
 
     let drive: String = r"\\.\C:".to_string();
+    if output != "." {
+        // might throws an error if it's not possible to create
+        fs::create_dir_all(&output).unwrap();
+    }
 
     // read file system
     let f: File = File::open(&drive).unwrap();
@@ -54,15 +66,17 @@ fn main() -> Result<()> {
         current_directory_name: String::from(r"C:\"),
         fs,
         ntfs: &ntfs,
+        output: output,
     };
 
     if cd(&path, &mut info) == "" {
         println!("Error when changing Directory.");
         process::exit(0x0100);
     }
+
     let collect_path_parts = path.split("\\").collect::<Vec<&str>>();
     let target_filename = collect_path_parts.last().unwrap();
-    let _res = get(target_filename, &mut info, ".");
+    let _res = get(target_filename, &mut info);
     //ls(&mut info);
     cd_root(&mut info);
     println!();

@@ -68,7 +68,7 @@ where
     info.current_directory_name = String::from(r"C:\");
 }
 
-pub fn ls<T>(info: &mut CommandInfo<T>)
+pub fn _ls<T>(info: &mut CommandInfo<T>)
 where
     T: Read + Seek,
 {
@@ -97,7 +97,7 @@ where
     }
 }
 
-pub fn get<T>(arg: &str, info: &mut CommandInfo<T>, output_dir: &str) -> Result<()>
+pub fn get<T>(arg: &str, info: &mut CommandInfo<T>) -> Result<()>
 where
     T: Read + Seek,
 {
@@ -115,14 +115,14 @@ where
         format!("{file_name}_{data_stream_name}")
     };
 
-    let v = vec![output_dir, "\\", &output_file_name];
-    let test: String = v.concat();
+    let output_path: String =
+        vec![info.output.clone(), "\\".to_string(), output_file_name].concat();
 
     let mut output_file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&test)
-        .with_context(|| format!("Tried to open \"{test}\" for writing"))?;
+        .open(&output_path)
+        .with_context(|| format!("Tried to open \"{output_path}\" for writing"))?;
 
     // Open the desired file and find the $DATA attribute we are looking for.
     let file = parse_file_arg(file_name, info)?;
@@ -140,7 +140,7 @@ where
     println!(
         "Saving {} bytes of data in \"{}\"...",
         data_value.len(),
-        output_file_name
+        output_path
     );
     let mut buf = [0u8; 4096];
 
