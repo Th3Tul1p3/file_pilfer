@@ -30,7 +30,7 @@ where
 
             if maybe_entry.is_none() {
                 println!(
-                    "Cannot find subdirectory \"{dir}\".\nStop at : {}",
+                    "nnot find subdirectory \"{dir}\".\nStop at : {}",
                     info.current_directory_name
                 );
                 return String::new();
